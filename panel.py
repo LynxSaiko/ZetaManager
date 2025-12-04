@@ -23,10 +23,12 @@ class FilePanel:
         except PermissionError:
             self.files = ["[Permission Denied]"]
 
-    def navigate(self, direction: int):
+    def navigate(self, direction: int, visible_height=10):
         if not self.files:
             return
+
         self.cursor_pos += direction
+
         if self.cursor_pos < 0:
             self.cursor_pos = len(self.files) - 1
         elif self.cursor_pos >= len(self.files):
@@ -34,8 +36,8 @@ class FilePanel:
 
         if self.cursor_pos < self.scroll_offset:
             self.scroll_offset = self.cursor_pos
-        elif self.cursor_pos >= self.scroll_offset + curses.LINES - 6:
-            self.scroll_offset = self.cursor_pos - (curses.LINES - 6) + 1
+        elif self.cursor_pos >= self.scroll_offset + visible_height:
+            self.scroll_offset = self.cursor_pos - visible_height + 1
 
     def get_selected(self) -> str:
         if not self.files or self.cursor_pos >= len(self.files):
