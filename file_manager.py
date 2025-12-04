@@ -713,26 +713,105 @@ class FileManager:
 
         try:
             ext = os.path.splitext(full_path)[1].lower()
-            terminal = self.detect_terminal()
-
+            
+            # Pastikan file executable untuk script
+            if ext in [".py", ".sh"] and not os.access(full_path, os.X_OK):
+                os.chmod(full_path, os.stat(full_path).st_mode | 0o111)
+            
+            # SELALU gunakan xterm untuk menghindari masalah
+            terminal = "xterm"
+            
             if ext == ".py":
-                subprocess.Popen([terminal, "-e", f"python3 '{full_path}'"])
+                # Execute Python file
+                subprocess.Popen(
+                    [terminal, "-e", "bash", "-c", f'cd "{os.path.dirname(full_path)}" && python3 "{os.path.basename(full_path)}"; echo; echo "Press Enter to close..."; read'],
+                    start_new_session=True,
+                )
             elif ext == ".sh":
-                subprocess.Popen([terminal, "-e", f"bash '{full_path}'"])
-            elif ext in [".txt", ".md"]:
-                subprocess.Popen(["nano", full_path])
+                # Execute shell script
+                subprocess.Popen(
+                    [terminal, "-e", "bash", "-c", f'cd "{os.path.dirname(full_path)}" && bash "{os.path.basename(full_path)}"; echo; echo "Press Enter to close..."; read'],
+                    start_new_session=True,
+                )
+            elif ext in [".txt", ".md", ".c", ".cpp", ".h", ".java", ".js", ".html", ".css", ".py", ".json", ".yml", ".yaml", ".xml", ".ini", ".conf"]:
+                # Open text files in nano editor INSIDE terminal
+                subprocess.Popen(
+                    [terminal, "-e", "nano", full_path],
+                    start_new_session=True,
+                )
+            elif ext in [".jpg", ".png", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]:
+                # Open images with image viewer
+                if shutil.which("feh"):
+                    subprocess.Popen(["feh", full_path], start_new_session=True)
+                elif shutil.which("eog"):
+                    subprocess.Popen(["eog", full_path], start_new_session=True)
+                else:
+                    subprocess.Popen(["xdg-open", full_path], start_new_session=True)
+            elif ext in [".pdf"]:
+                # Open PDF
+                if shutil.which("evince"):
+                    subprocess.Popen(["evince", full_path], start_new_session=True)
+                else:
+                    subprocess.Popen(["xdg-open", full_path], start_new_session=True)
+            elif ext in [".mp4", ".avi", ".mkv", ".mov", ".webm", ".flv"]:
+                # Open video
+                if shutil.which("mpv"):
+                    subprocess.Popen(["mpv", full_path], start_new_session=True)
+                elif shutil.which("vlc"):
+                    subprocess.Popen(["vlc", full_path], start_new_session=True)
+                else:
+                    subprocess.Popen(["xdg-open", full_path], start_new_session=True)
+            elif ext in [".mp3", ".wav", ".ogg", ".flac"]:
+                # Open audio
+                if shutil.which("mpv"):
+                    subprocess.Popen(["mpv", full_path], start_new_session=True)
+                else:
+                    subprocess.Popen(["xdg-open", full_path], start_new_session=True)
             else:
-                subprocess.Popen([terminal, "-e", full_path])
+                # Try to execute or view
+                if os.access(full_path, os.X_OK):
+                    # It's executable
+                    subprocess.Popen(
+                        [terminal, "-e", "bash", "-c", f'cd "{os.path.dirname(full_path)}" && "./{os.path.basename(full_path)}"; echo; echo "Press Enter to close..."; read'],
+                        start_new_session=True,
+                    )
+                else:
+                    # View file content
+                    subprocess.Popen(
+                        [terminal, "-e", "bash", "-c", f'echo "=== File: {os.path.basename(full_path)} ===" && echo && cat "{full_path}" && echo && echo "=== End of file ===" && echo && echo "Press Enter to close..."; read'],
+                        start_new_session=True,
+                    )
 
         except Exception as e:
-            self.show_message(f"Error executing: {e}", 5)
+            self.show_message(f"Error executing: {str(e)}", 5)
 
-    def detect_terminal(self):
-        terminals = ["urxvt", "xterm", "gnome-terminal", "konsole",
-                     "tilix", "lxterminal", "terminator", "mate-terminal"]
-        for t in terminals:
-            if shutil.which(t):
-                return t
+    def detect_terminal_safe(self):
+        """Pilih terminal yang paling stabil, hindari yang bermasalah"""
+        # Prioritaskan terminal yang stabil
+        stable_terminals = [
+            "xterm",           # Paling stabil, selalu ada di Unix
+            "urxvt",
+            "gnome-terminal",  # GTK-based, stabil
+            "konsole",         # KDE, stabil
+            "xfce4-terminal",  # XFCE, stabil
+            "lxterminal",      # Lightweight, stabil
+            "mate-terminal",   # MATE, stabil
+            "terminator",      # Advanced features
+            "tilix",           # Tiling terminal
+            "alacritty",       # GPU accelerated
+            "kitty",           # Modern terminal
+        ]
+        
+        # Cari terminal yang tersedia
+        for terminal in stable_terminals:
+            if shutil.which(terminal):
+                return terminal
+        
+        # Jika urxvt satu-satunya yang ada, gunakan dengan opsi aman
+        if shutil.which("urxvt"):
+            return "urxvt"
+        
+        # Fallback ke xterm (harusnya selalu ada)
         return "xterm"
 
     def toggle_panel(self):
