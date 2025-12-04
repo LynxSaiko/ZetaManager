@@ -33,7 +33,7 @@ class FileManager:
         self.bg_done = False       # selesai atau belum
         self.bg_total = 0
         self.bg_now = 0
-
+        self.create_windows()
         self.init_ui()
 
     def init_ui(self):
@@ -51,31 +51,57 @@ class FileManager:
     def inactive_panel(self):
         return self.right_panel if self.active_panel == "left" else self.left_panel
 
+
+    def create_windows(self):
+        h, w = self.stdscr.getmaxyx()
+        mid = w // 2
+
+        try:
+            self.left_win.erase()
+            self.right_win.erase()
+            del self.left_win
+            del self.right_win
+        except:
+            pass
+
+        self.left_win = curses.newwin(h - 4, mid - 1, 2, 0)
+        self.right_win = curses.newwin(h - 4, w - mid - 1, 2, mid + 1)
+
+        self.left_win.keypad(True)
+        self.right_win.keypad(True)
+
+
+
+
     # =====================================================
     #                    DRAW UI
     # =====================================================
     def draw(self):
-        self.stdscr.erase()
         height, width = self.stdscr.getmaxyx()
 
-        if height < 10 or width < 40:
-            self.stdscr.addstr(0, 0, "Terminal terlalu kecil. Perbesar dan jalankan ulang.")
-            self.stdscr.refresh()
-            curses.napms(2000)
+        if height <= 0 or width <= 0:
             return
+
+        if height < 10 or width < 40:
+            try:
+                self.stdscr.clear()
+                self.stdscr.addstr(0, 0, "Terminal terlalu kecil. Perbesar dan jalankan ulang.")
+                self.stdscr.refresh()
+                curses.napms(2000)
+                return
+            except:
+                return
 
         self.draw_header(width)
 
-        # ============ PANEL WIDTH DYNAMIC ============
         if self.right_panel_visible:
             panel_width = max((width - 4) // 2, 10)
         else:
-            panel_width = width - 4  # Full width untuk panel kiri
+            panel_width = width - 4
 
         base_panel_height = max(height - 4, 5)
         panel_height = base_panel_height - (2 if self.search_mode else 0)
 
-        # ============ LEFT ALWAYS DRAW ============
         self.draw_panel(
             self.left_panel,
             2,
@@ -85,7 +111,6 @@ class FileManager:
             self.active_panel == "left",
         )
 
-        # ============ RIGHT ONLY IF VISIBLE ============
         if self.right_panel_visible:
             self.draw_panel(
                 self.right_panel,
@@ -96,7 +121,6 @@ class FileManager:
                 self.active_panel == "right",
             )
 
-        # ============ STATUS MESSAGE ============
         if self.message and self.message_timer > 0:
             self.stdscr.addstr(
                 height - 1,
@@ -106,9 +130,11 @@ class FileManager:
             )
             self.message_timer -= 1
 
-        self.stdscr.refresh()
         self.draw_status_bar(height, width)
         self.draw_progress_bar(height, width)
+
+        self.stdscr.refresh()
+
 
 
     def human_size(self, size):
@@ -653,8 +679,8 @@ class FileManager:
             return True
 
         actions = {
-            curses.KEY_UP: lambda: self.current_panel.navigate(-1),
-            curses.KEY_DOWN: lambda: self.current_panel.navigate(1),
+            curses.KEY_UP: lambda: self.current_panel.navigate(-1, self.get_visible_height()),
+            curses.KEY_DOWN: lambda: self.current_panel.navigate(1, self.get_visible_height()),
             curses.KEY_LEFT: self.current_panel.go_up,
             curses.KEY_RIGHT: self.current_panel.enter_directory,
 
@@ -664,6 +690,7 @@ class FileManager:
             curses.KEY_F7: self.cut_file,
             curses.KEY_F8: self.paste_file,
             curses.KEY_F5: self.delete_file,
+            curses.KEY_F10: self.exit_program,
             curses.KEY_F11: self.view_mounts,
 
             10: self.execute_or_enter,
@@ -696,6 +723,14 @@ class FileManager:
             self.show_message("Operation cancelled", 3)
             return True
         return False
+
+
+    def get_visible_height(self):
+        try:
+            h, _ = self.left_win.getmaxyx()
+            return max(h - 2, 3)
+        except:
+            return 5
 
     # =====================================================
     #            SEARCH, RENAME, ETC.
@@ -821,8 +856,18 @@ class FileManager:
         self.search_mode = True
         self.search_query = ""
 
+
     def exit_program(self):
+        """Exit program dengan clear terminal"""
+        # Clear terminal
+        self.stdscr.clear()
+        self.stdscr.refresh()
+        
+        # Return False untuk keluar dari main loop
         return False
+
+    #def exit_program(self):
+        #return False
 
     def handle_search_input(self, key):
         if key == 27:
@@ -982,18 +1027,58 @@ class FileManager:
     #                      MAIN LOOP
     # =====================================================
     def run(self):
+        import signal
+        
         running = True
-        while running:
+        self.needs_full_redraw = True
+
+        def hard_clear_terminal():
+            os.system("printf '\\033[2J\\033[H'")
+
+        def on_resize(signum, frame):
             try:
-                self.draw()
+                curses.endwin()
+
+                hard_clear_terminal()
+
+                h, w = self.stdscr.getmaxyx()
+                curses.resizeterm(h, w)
+
+                self.stdscr.erase()
+                curses.doupdate()
+
+                self.create_windows()
+
+                self.left_panel.scroll_offset = 0
+                self.right_panel.scroll_offset = 0
+
+                self.needs_full_redraw = True
+
+            except:
+                pass
+
+        signal.signal(signal.SIGWINCH, on_resize)
+
+        try:
+            while running:
+                if self.needs_full_redraw:
+                    self.stdscr.erase()
+                    self.draw()
+                    self.needs_full_redraw = False
+                else:
+                    self.draw()
+
                 running = self.handle_input()
-                
-                # Jika ada operasi background, kurangi delay
-                if self.bg_task and not self.bg_done:
-                    # Tidak perlu napms di sini karena handle_input sudah timeout
-                    pass
-                    
-            except KeyboardInterrupt:
-                running = False
-            except Exception as e:
-                self.show_message(f"Error: {str(e)[:50]}", 5)
+
+                curses.napms(16)  # limiter ~60 FPS → anti tearing
+
+        finally:
+            try:
+                curses.nocbreak()
+                self.stdscr.keypad(False)
+                curses.echo()
+                curses.endwin()
+            except:
+                pass
+
+        return False
